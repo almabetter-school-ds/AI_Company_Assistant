@@ -102,18 +102,7 @@ Questions are standalone; chat history is shown in the UI but is not supplied to
   semantic chunking, advanced FAISS indexes, streaming, and Ragas are extension exercises,
   not implemented production features.
 
-## Relevant previous-lesson topics
 
-Core: LangChain prompt templates, LCEL/runnables, StrOutputParser, structured outputs,
-embeddings, FAISS, Chroma, recursive chunking, ingestion, metadata, per-company retrieval,
-reranking, hybrid retrieval, source attribution, instruction/data separation.
-
-Notebook demonstrations: embedding normalization/cosine, FAISS float32 L2/IP and persistence,
-Chroma metadata filters/CRUD/persistence, retrieval comparisons, manual relevance/faithfulness evaluation.
-
-Extensions: semantic chunking, IVF/PQ/HNSW, Ragas context precision and faithfulness,
-streaming, semantic caching, and Text-to-SQL against a separately configured database.
-The CSV branch uses pandas plans, not Text-to-SQL.
 
 ## Primary documentation
 
