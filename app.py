@@ -19,7 +19,7 @@ import backend
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("company_assistant")
-api = FastAPI(title="Company Knowledge and Comparison Assistant", version="3.0")
+api = FastAPI(title="Atlas — Company Research Assistant", version="3.0")
 
 
 class AskRequest(BaseModel):
@@ -154,16 +154,16 @@ CSS = """
 #hero h1 {color:white; margin:0 0 10px;}
 #hero p {color:#dbeafe; margin:0;}
 """
-with gr.Blocks(title="Company Knowledge Assistant", css=CSS,
+with gr.Blocks(title="Atlas by Northstar Systems", css=CSS,
                theme=gr.themes.Soft(primary_hue="blue")) as ui:
-    gr.HTML('<div id="hero"><h1>Company Knowledge and Comparison Assistant</h1>'
-            '<p>Ask about uploaded reports and spreadsheets, and inspect the supporting evidence.</p></div>')
+    gr.HTML('<div id="hero"><h1>Atlas — Company Research Assistant</h1>'
+            '<p>Northstar Systems’ research workspace for comparing company documents and financial tables with supporting evidence.</p></div>')
     key = gr.State("")
     ui.load(backend.create_workspace, inputs=None, outputs=key)
     with gr.Row():
         with gr.Column(scale=1, min_width=300):
             gr.Markdown("### 1. Upload company files")
-            company = gr.Textbox(label="Company label", placeholder="Company Alpha")
+            company = gr.Textbox(label="Company label", placeholder="Apple, Microsoft or Alphabet")
             files = gr.File(label="PDF / TXT / CSV / XLSX", file_count="multiple",
                             file_types=[".pdf", ".txt", ".csv", ".xlsx"], type="filepath")
             basis = gr.Textbox(label="Reporting basis (required for tables)", lines=3,
@@ -183,9 +183,9 @@ with gr.Blocks(title="Company Knowledge Assistant", css=CSS,
             gr.Markdown("### 2. Ask and compare")
             chat = gr.Chatbot(type="messages", height=380, show_label=False)
             question = gr.Textbox(label="Question", lines=2,
-                                  placeholder="Compare Q1 revenue with each company's documented target.")
+                                  placeholder="Compare reported FY2024 revenue for Apple, Microsoft and Alphabet, retaining each reporting-period end.")
             with gr.Row():
-                ask = gr.Button("Ask assistant", variant="primary")
+                ask = gr.Button("Ask Atlas", variant="primary")
                 clear = gr.Button("Clear conversation")
             with gr.Accordion("Uploaded files", open=True):
                 inventory = gr.Dataframe(headers=["Company", "File", "Sheet/type", "Rows", "Columns", "Table ID"],
