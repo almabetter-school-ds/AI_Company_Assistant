@@ -1,104 +1,21 @@
-"""Gradio interface and FastAPI routes. All processing lives in backend.py."""
+"""Atlas browser interface. Run with: python app.py.
+
+Buttons call backend.py directly. No custom HTTP API is defined here.
+"""
 import logging
 import os
 from pathlib import Path
-from typing import Literal
 
-# Allow local browser/API requests to bypass any configured proxy.
+# Keep local browser requests out of any configured proxy.
 for name in ("NO_PROXY", "no_proxy"):
     os.environ[name] = ",".join(filter(None, [os.getenv(name, ""), "localhost", "127.0.0.1", "::1"]))
 os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 
 import gradio as gr
-import uvicorn
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, Field
-from starlette.concurrency import run_in_threadpool
 import backend
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("company_assistant")
-api = FastAPI(title="Atlas — Company Research Assistant", version="3.0")
-
-
-class AskRequest(BaseModel):
-    # Pydantic checks API request fields before our route executes.
-    workspace_id: str
-    question: str = Field(min_length=1, max_length=2000)
-    companies: list[str] = Field(min_length=1, max_length=5)
-    source: Literal["Documents", "Tables", "Both"] = "Both"
-    store_type: Literal["FAISS", "Chroma"] = "FAISS"
-    rerank: bool = True
-    hybrid: bool = False
-
-
-def api_error(exc):
-    if isinstance(exc, ValueError):
-        return HTTPException(status_code=400, detail=str(exc))
-    logger.warning("Backend failed (%s)", type(exc).__name__)
-    return HTTPException(status_code=503, detail="Processing failed. Check model access, downloads, network, and quota.")
-
-
-@api.get("/")
-def home():
-    return RedirectResponse("/ui/")
-
-
-@api.get("/health")
-def health():
-    return {"status": "ok"}
-
-
-@api.post("/workspaces")
-def new_workspace():
-    try:
-        return {"workspace_id": backend.create_workspace()}
-    except Exception as exc:
-        raise api_error(exc) from None
-
-
-@api.get("/workspaces/{workspace_id}")
-def list_files(workspace_id: str):
-    try:
-        companies, files = backend.inventory(workspace_id)
-        return {"companies": companies, "inventory": files}
-    except Exception as exc:
-        raise api_error(exc) from None
-
-
-@api.delete("/workspaces/{workspace_id}")
-def clear_files(workspace_id: str):
-    try:
-        return {"message": backend.clear_workspace(workspace_id)}
-    except Exception as exc:
-        raise api_error(exc) from None
-
-
-@api.post("/workspaces/{workspace_id}/upload")
-async def upload_files(workspace_id: str, company: str = Form(...), basis: str = Form(""),
-                       files: list[UploadFile] = File(...)):
-    try:
-        if len(files) > 20:
-            raise ValueError("Upload at most 20 files.")
-        payload = [(f.filename or "upload", await f.read(backend.MAX_BYTES + 1)) for f in files]
-        # File parsing is synchronous; run it in a thread rather than blocking the event loop.
-        message = await run_in_threadpool(backend.add_files, workspace_id, company, payload, basis)
-        return {"message": message}
-    except Exception as exc:
-        raise api_error(exc) from None
-    finally:
-        for f in files:
-            await f.close()
-
-
-@api.post("/ask")
-def ask_api(request: AskRequest):
-    try:
-        return backend.answer_question(request.workspace_id, request.question, request.companies,
-                                       request.source, request.store_type, request.rerank, request.hybrid)
-    except Exception as exc:
-        raise api_error(exc) from None
+logger = logging.getLogger("atlas")
 
 
 def ui_error(exc):
@@ -113,6 +30,7 @@ def ui_error(exc):
     return gr.Error(f"{type(exc).__name__}: {exc}")
 
 def add_ui(key, company, files, basis):
+    """Read selected files, upload to the session, then refresh the screen."""
     try:
         if not files:
             raise ValueError("Select files first.")
@@ -130,6 +48,7 @@ def add_ui(key, company, files, basis):
 
 
 def ask_ui(key, question, companies, source, store_type, rerank, hybrid, history):
+    """Call the backend directly and display its answer and evidence."""
     try:
         result = backend.answer_question(key, question or "", companies or [], source, store_type, rerank, hybrid)
         # History is for display only. Each backend question is standalone.
@@ -141,11 +60,17 @@ def ask_ui(key, question, companies, source, store_type, rerank, hybrid, history
 
 
 def reset_ui(key):
+    """Remove this session’s uploaded content and reset its display."""
     try:
         backend.clear_workspace(key)
         return "Workspace cleared.", gr.update(choices=[], value=[]), [], [], None, None, None
     except Exception as exc:
         raise ui_error(exc) from None
+
+
+def clear_conversation():
+    """Clear the displayed chat and evidence while keeping uploaded files."""
+    return "", [], None, None
 
 
 CSS = """
@@ -159,7 +84,7 @@ with gr.Blocks(title="Atlas by Northstar Systems", css=CSS,
     gr.HTML('<div id="hero"><h1>Atlas — Company Research Assistant</h1>'
             '<p>Northstar Systems’ research workspace for comparing company documents and financial tables with supporting evidence.</p></div>')
     key = gr.State("")
-    ui.load(backend.create_workspace, inputs=None, outputs=key)
+    ui.load(backend.create_workspace, inputs=None, outputs=key, api_name=False)
     with gr.Row():
         with gr.Column(scale=1, min_width=300):
             gr.Markdown("### 1. Upload company files")
@@ -194,16 +119,21 @@ with gr.Blocks(title="Atlas by Northstar Systems", css=CSS,
                 doc_output = gr.JSON(label="Document excerpts, sources, and reranking scores")
                 calc_output = gr.JSON(label="Verified table calculations")
             gr.Markdown("Each question is standalone. State company names and the period explicitly.")
-    options = {"concurrency_limit": 1, "concurrency_id": "workspace"}
+    # Gradio 5: keep events available to this UI, without a client-facing API.
+    options = {"concurrency_limit": 1, "concurrency_id": "workspace", "api_name": False}
     add.click(add_ui, [key, company, files, basis],
               [status, selected, inventory, chat, doc_output, calc_output], **options)
     for trigger in (ask.click, question.submit):
         trigger(ask_ui, [key, question, selected, source, store_type, rerank, hybrid, chat],
                 [question, chat, doc_output, calc_output], **options)
-    clear.click(lambda: ("", [], None, None), None, [question, chat, doc_output, calc_output], **options)
+    clear.click(clear_conversation, None, [question, chat, doc_output, calc_output], **options)
     reset.click(reset_ui, [key], [status, selected, inventory, chat, doc_output, calc_output, files], **options)
 
-app = gr.mount_gradio_app(api, ui.queue(), path="/ui")
 if __name__ == "__main__":
-    print("UI: http://127.0.0.1:8000/ui/ | API docs: http://127.0.0.1:8000/docs")
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    # Gradio starts the local browser interface; no separate server setup is needed.
+    ui.queue().launch(
+        server_name="127.0.0.1",
+        server_port=7860,
+        share=False,
+        show_api=False,
+    )
